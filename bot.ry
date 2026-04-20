@@ -1,0 +1,111 @@
+import json
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+from openai import AsyncOpenAI
+
+TELEGRAM_TOKEN = "7997006661:AAERQ3n4flz1-ZyQgUsoZY222nJyGAd7SKs"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+client = AsyncOpenAI(api_key="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")
+
+SYSTEM_PROMPT = """
+Ты Angel AI. Анализируешь задачи предпринимателя.
+Отвечай ТОЛЬКО валидным JSON без лишнего текста.
+
+Формат ответа:
+{
+  "tasks": [
+    {
+      "task": "название задачи",
+      "profit": число 1-100,
+      "minutes": число,
+      "priority": "Делать сейчас" или "Делать сегодня" или "Делегировать" или "Отложить" или "После работы",
+      "reason": "почему такой приоритет — одно предложение",
+      "warning": "что будет если не сделать — одно предложение"
+    }
+  ]
+}
+
+КАК ОЦЕНИВАТЬ PROFIT:
+70-100 = прямая связь с продажами, деньги сегодня
+45-69 = косвенная связь, деньги позже
+20-44 = слабая связь с деньгами
+1-19 = нет связи с деньгами
+Личные задачи = profit 5, priority После работы
+
+ПРИОРИТЕТ:
+70+ Делать сейчас
+45-69 Делать сегодня
+20-44 Делегировать
+1-19 Отложить
+Личное После работы
+
+Отвечай ТОЛЬКО JSON. Никакого текста вокруг.
+"""
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 Привет! Я Angel AI.\n\n"
+        "Пишешь задачи — я говорю что принесёт деньги.\n\n"
+        "Напиши все задачи на сегодня 👇"
+    )
+
+async def analyze_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    await update.message.reply_text("⏳ Анализирую...")
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": text}
+            ]
+        )
+        raw = response.choices[0].message.content
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        result = json.loads(raw)
+        tasks = result.get("tasks", [])
+
+        order = {"Делать сейчас":0,"Делать сегодня":1,"Делегировать":2,"Отложить":3,"После работы":4}
+        tasks.sort(key=lambda x: order.get(x.get("priority","Отложить"),5))
+
+        emoji = {"Делать сейчас":"🔥","Делать сегодня":"✅","Делегировать":"👥","Отложить":"⏳","После работы":"🏠"}
+
+        reply = f"📋 Проанализировал {len(tasks)} задач:\n\n"
+        for t in tasks:
+            e = emoji.get(t.get("priority","⏳"),"⏳")
+            reply += f"{e} {t.get('task','')}\n"
+            reply += f"💰 Влияние на прибыль: {t.get('profit',0)}%  ⏱ {t.get('minutes',0)} мин\n"
+            reply += f"💡 {t.get('reason','')}\n"
+            reply += f"⚠️ {t.get('warning','')}\n"
+            reply += f"👉 {t.get('priority','')}\n\n"
+
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Точно", callback_data="agree"),
+            InlineKeyboardButton("❌ Есть ошибки", callback_data="disagree")
+        ]])
+        await update.message.reply_text(reply, reply_markup=keyboard)
+
+    except Exception as e:
+        await update.message.reply_text("⚠️ Ошибка. Попробуй ещё раз.")
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.data == "agree":
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("👍 Фокусируйся на приоритетных задачах. Удачного дня! 💪")
+    elif query.data == "disagree":
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("🙏 Напиши что было неточно — улучшим систему.")
+
+def main():
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, analyze_task))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    print("✅ Angel AI запущен!")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
