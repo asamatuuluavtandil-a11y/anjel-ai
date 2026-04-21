@@ -4,8 +4,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from openai import AsyncOpenAI
 
 TELEGRAM_TOKEN = "7997006661:AAERQ3n4flz1-ZyQgUsoZY222nJyGAd7SKs"
-client = AsyncOpenAI(api_key="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")
 
+client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 PROMPT = """Ты Angel AI. Анализируй задачи предпринимателя. Отвечай ТОЛЬКО JSON без текста. Формат: {"tasks": [{"task": "название", "profit": число 1-100, "minutes": число, "priority": "Делать сейчас" или "Делать сегодня" или "Делегировать" или "Отложить" или "После работы", "reason": "одно предложение", "warning": "одно предложение"}]}. Правила: 70+ прибыль = Делать сейчас, 45-69 = Делать сегодня, 20-44 = Делегировать, 1-19 = Отложить, личное = После работы."""
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
